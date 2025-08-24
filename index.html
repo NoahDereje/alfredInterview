@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Assignment & Exam Tracker</title>
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --muted:#9ca3af; --text:#e5e7eb; --line:#1f2937; }
+    html,body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 820px; margin: 24px auto; padding: 16px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.25);}
+    h1 { font-size: 22px; margin: 0 0 12px; }
+    .row { display:grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap:10px; }
+    input,select,button { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:#0b1220; color:var(--text); }
+    button { cursor:pointer; border:1px solid #334155; }
+    button.primary { background:#2563eb; border-color:#1d4ed8; color:white; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:10px; margin:12px 0 0; }
+    .list { margin-top:16px; display:flex; flex-direction:column; gap:10px; }
+    .item { display:grid; grid-template-columns: auto 1fr auto auto auto; align-items:center; gap:10px; padding:12px; border:1px solid var(--line); border-radius:12px; background:#0b1220; }
+    .title { font-weight:600; }
+    .course { color:var(--muted); font-size:12px; }
+    .pill { font-size:12px; padding:4px 8px; border-radius:999px; border:1px solid var(--line); }
+    .muted { color: var(--muted); }
+    .empty { text-align:center; color:var(--muted); padding:24px; border:1px dashed var(--line); border-radius:12px; }
+    .done { color:#94a3b8; text-decoration:line-through; }
+    .overdue { color:#ef4444; }
+    .urg-red { color:#ef4444; }
+    .urg-orange { color:#f59e0b; }
+    .urg-green { color:#22c55e; }
+    .small { font-size:12px; }
+    .spacer { flex:1 1 auto; }
+
+    @media (max-width: 720px){
+      .row { grid-template-columns: 1fr 1fr 1fr; }
+      .row > .wide { grid-column: span 3; }
+      .item { grid-template-columns: auto 1fr auto; }
+      .hide-sm { display:none; }
+      #add { grid-column: span 3; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Assignment & Exam Tracker</h1>
+
+      <!-- Add Form -->
+      <div class="row" role="group" aria-label="Add new item">
+        <input id="title" placeholder="Title (e.g., Problem Set 3)" aria-label="Title" />
+        <input id="course" placeholder="Course (e.g., CS101)" aria-label="Course" />
+        <select id="type" aria-label="Type">
+          <option value="assignment">Assignment</option>
+          <option value="exam">Exam</option>
+        </select>
+        <input id="due" type="datetime-local" aria-label="Due date and time" />
+        <button id="add" class="primary" aria-label="Add item">Add</button>
+      </div>
+
+      <!-- Filters -->
+      <div class="toolbar" role="group" aria-label="Filters and actions">
+        <select id="filterType" style="max-width:180px" aria-label="Filter by type">
+          <option value="all">All types</option>
+          <option value="assignment">Assignments</option>
+          <option value="exam">Exams</option>
+        </select>
+        <input id="search" placeholder="Search title or course…" aria-label="Search" />
+        <button id="seed" aria-label="Seed example items">Seed</button>
+        <button id="clear" aria-label="Clear completed">Clear Done</button>
+        <span class="spacer"></span>
+        <button id="reset" aria-label="Reset all items">Reset All</button>
+      </div>
+
+      <!-- List -->
+      <div id="list" class="list" role="list"></div>
+      <div id="empty" class="empty" style="display:none">No items yet — add your first due date above.</div>
+
+      <div class="small muted" style="margin-top:10px">
+        Urgency colors: <span class="urg-red">≤24h</span> • <span class="urg-orange">≤3d</span> • <span class="urg-green">&gt;3d</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // storage
+    const KEY = "tracker.items.v1";
+    const load = () => {
+      try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
+    };
+    const save = (items) => localStorage.setItem(KEY, JSON.stringify(items));
+
+    // state
+    let items = load();
+
+    // dom
+    const $list = document.getElementById("list");
+    const $empty = document.getElementById("empty");
+    const $title = document.getElementById("title");
+    const $course = document.getElementById("course");
+    const $type = document.getElementById("type");
+    const $due = document.getElementById("due");
+    const $add = document.getElementById("add");
+    const $seed = document.getElementById("seed");
+    const $clear = document.getElementById("clear");
+    const $reset = document.getElementById("reset");
+    const $filterType = document.getElementById("filterType");
+    const $search = document.getElementById("search");
+
+    // utilities
+    const uid = () => Math.random().toString(36).slice(2, 10);
+    const fmt = (iso) => {
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? "Invalid date" :
+        d.toLocaleString([], { hour: '2-digit', minute:'2-digit', month:'short', day:'numeric' });
+    };
+    function urgencyClass(iso, done){
+      if (done) return "done";
+      const t = new Date(iso).getTime();
+      if (isNaN(t)) return "";
+      const diff = t - Date.now();
+      const days = diff / 86400000;
+      if (days < 0) return "overdue";
+      if (days <= 1) return "urg-red";
+      if (days <= 3) return "urg-orange";
+      return "urg-green";
+    }
+
+    // render
+    function render(){
+      const q = $search.value.trim().toLowerCase();
+      const typeFilter = $filterType.value;
+
+      const filtered = items
+        .filter(it => typeFilter === "all" || it.type === typeFilter)
+        .filter(it => (it.title + " " + (it.course || "")).toLowerCase().includes(q))
+        .sort((a,b) => (new Date(a.dueAt).getTime() || Infinity) - (new Date(b.dueAt).getTime() || Infinity));
+
+      $list.innerHTML = "";
+      if (filtered.length === 0){
+        $empty.textContent = items.length
+          ? "No matching items — adjust filters or search."
+          : "No items yet — add your first due date above.";
+        $empty.style.display = "block";
+        return;
+      }
+      $empty.style.display = "none";
+
+      for (const it of filtered){
+        const row = document.createElement("div");
+        row.className = "item";
+        row.setAttribute("role", "listitem");
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = it.done;
+        cb.setAttribute("aria-label", `Mark ${it.title} as ${it.done ? 'not done' : 'done'}`);
+        cb.addEventListener("change", () => { it.done = cb.checked; save(items); render(); });
+
+        const info = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "title";
+        title.textContent = it.title;
+        const course = document.createElement("div");
+        course.className = "course";
+        course.textContent = it.course ? it.course : "—";
+
+        info.appendChild(title); info.appendChild(course);
+
+        const due = document.createElement("div");
+        due.className = "small " + urgencyClass(it.dueAt, it.done);
+        due.textContent = fmt(it.dueAt);
+
+        const typePill = document.createElement("div");
+        typePill.className = "pill hide-sm";
+        typePill.textContent = it.type;
+
+        const del = document.createElement("button");
+        del.textContent = "Delete";
+        del.setAttribute("aria-label", `Delete ${it.title}`);
+        del.addEventListener("click", () => {
+          items = items.filter(x => x.id !== it.id);
+          save(items); render();
+        });
+
+        row.appendChild(cb);
+        row.appendChild(info);
+        row.appendChild(due);
+        row.appendChild(typePill);
+        row.appendChild(del);
+        $list.appendChild(row);
+      }
+    }
+
+    // add
+    function addItem(){
+      const t = $title.value.trim();
+      const d = $due.value;
+      const dt = new Date(d);
+      if (!t || !d || isNaN(dt.getTime())){
+        alert("Please enter a valid title and due date/time.");
+        return;
+      }
+      items.push({
+        id: uid(),
+        title: t,
+        course: $course.value.trim(),
+        type: $type.value,
+        dueAt: dt.toISOString(),
+        done: false,
+        createdAt: new Date().toISOString()
+      });
+      save(items);
+      $title.value = ""; $course.value = ""; $type.value = "assignment"; $due.value = "";
+      render();
+      $title.focus();
+    }
+
+    // seeds
+    function seed(){
+      const now = Date.now();
+      items = items.concat([
+        { id: uid(), title:"Problem Set 3", course:"CS101", type:"assignment", dueAt:new Date(now+36e5*8).toISOString(),  done:false, createdAt:new Date().toISOString() },
+        { id: uid(), title:"Midterm Review", course:"BIO210", type:"exam",       dueAt:new Date(now+36e5*60).toISOString(), done:false, createdAt:new Date().toISOString() },
+        { id: uid(), title:"Lab Report",     course:"CHEM110",type:"assignment", dueAt:new Date(now+36e5*120).toISOString(),done:false, createdAt:new Date().toISOString() },
+      ]);
+      save(items); render();
+    }
+
+    // clear
+    function clearDone(){
+      items = items.filter(it => !it.done);
+      save(items); render();
+    }
+
+    // reset
+    function resetAll(){
+      if (confirm("Clear ALL items? This cannot be undone.")){
+        items = [];
+        save(items);
+        render();
+      }
+    }
+
+    // events
+    $add.addEventListener("click", addItem);
+    const enterToAdd = e => { if (e.key === "Enter") addItem(); };
+    [$title,$course,$due].forEach(el => el.addEventListener("keydown", enterToAdd));
+    $seed.addEventListener("click", seed);
+    $clear.addEventListener("click", clearDone);
+    $reset.addEventListener("click", resetAll);
+    $filterType.addEventListener("change", render);
+    $search.addEventListener("input", render);
+
+    // init
+    render();
+  </script>
+</body>
+</html>
