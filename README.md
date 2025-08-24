@@ -76,6 +76,6 @@ By combining deadlines into a single user-friendly display, the widget aids stud
 ---
 
 ## Top 3 Strengths  
-1. **Problem Solving / Debugging**
-2. **User Experience**
-3. **Frontend Engineering**  
+1. **Backend Architecture**
+2. **API Integration**
+3. **Problem Solving / Debugging**  
